@@ -19,6 +19,7 @@ from thinc.types import (
 )
 
 
+@pytest.mark.xfail(reason="Validation currently disabled")
 @pytest.mark.parametrize(
     "arr,arr_type",
     [
@@ -38,6 +39,7 @@ def test_array_validation_valid(arr, arr_type):
     assert numpy.array_equal(arr, result.arr)
 
 
+@pytest.mark.xfail(reason="Validation currently disabled")
 @pytest.mark.parametrize(
     "arr,arr_type",
     [

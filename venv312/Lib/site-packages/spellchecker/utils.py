@@ -25,7 +25,7 @@ def fail_after(version: str) -> typing.Callable:
         def test_inner(*args, **kwargs):
             if [int(x) for x in version.split(".")] <= [int(x) for x in __version__.split(".")]:
                 msg = (
-                    f"The function {func.__name__} must be fully removed as it is depricated"
+                    f"The function {func.__name__} must be fully removed as it is deprecated"
                     f" and must be removed by version {version}"
                 )
                 raise AssertionError(msg)
@@ -75,6 +75,8 @@ def ensure_unicode(value: KeyT, encoding: str = "utf-8") -> str:
     """
     if isinstance(value, bytes):
         return value.decode(encoding)
+    elif isinstance(value, list):
+        raise TypeError(f"The provided value {value} is not of type str or bytes")
     return value
 
 

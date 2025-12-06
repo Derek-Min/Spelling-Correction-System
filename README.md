@@ -41,3 +41,11 @@ Custom CSS for:
 
 ```bash
 python -m venv venv
+
+.\venv312\Scripts\Activate.ps1
+
+pip install -r requirements.txt
+
+pip install streamlit pyspellchecker spacy
+
+python -m spacy download en_core_web_sm

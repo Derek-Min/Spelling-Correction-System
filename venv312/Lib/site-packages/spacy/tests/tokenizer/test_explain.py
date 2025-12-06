@@ -18,6 +18,7 @@ LANGUAGES = [
     pytest.param("ar", marks=pytest.mark.slow()),
     pytest.param("bg", marks=pytest.mark.slow()),
     "bn",
+    pytest.param("bo", marks=pytest.mark.slow()),
     pytest.param("ca", marks=pytest.mark.slow()),
     pytest.param("cs", marks=pytest.mark.slow()),
     pytest.param("da", marks=pytest.mark.slow()),
@@ -57,6 +58,7 @@ LANGUAGES = [
     pytest.param("tr", marks=pytest.mark.slow()),
     pytest.param("tt", marks=pytest.mark.slow()),
     pytest.param("ur", marks=pytest.mark.slow()),
+    pytest.param("kmr", marks=pytest.mark.slow()),
 ]
 
 
@@ -82,6 +84,18 @@ def test_tokenizer_explain_special_matcher(en_vocab):
     )
     tokens = [t.text for t in tokenizer("a/a.")]
     explain_tokens = [t[1] for t in tokenizer.explain("a/a.")]
+    assert tokens == explain_tokens
+
+
+def test_tokenizer_explain_special_matcher_whitespace(en_vocab):
+    rules = {":]": [{"ORTH": ":]"}]}
+    tokenizer = Tokenizer(
+        en_vocab,
+        rules=rules,
+    )
+    text = ": ]"
+    tokens = [t.text for t in tokenizer(text)]
+    explain_tokens = [t[1] for t in tokenizer.explain(text)]
     assert tokens == explain_tokens
 
 
@@ -123,6 +137,9 @@ def test_tokenizer_explain_fuzzy(lang: str, sentence: str) -> None:
     """
 
     tokenizer: Tokenizer = spacy.blank(lang).tokenizer
-    tokens = [t.text for t in tokenizer(sentence) if not t.is_space]
+    # Tokenizer.explain is not intended to handle whitespace or control
+    # characters in the same way as Tokenizer
+    sentence = re.sub(r"\s+", " ", sentence).strip()
+    tokens = [t.text for t in tokenizer(sentence)]
     debug_tokens = [t[1] for t in tokenizer.explain(sentence)]
     assert tokens == debug_tokens, f"{tokens}, {debug_tokens}, {sentence}"

@@ -22,20 +22,20 @@ cdef class CBlas:
         funcs.sgemm = blis.cy.sgemm
         self.ptr = make_shared[BlasFuncs](funcs)
 
-cdef daxpy_ptr daxpy(CBlas cblas) nogil:
+cdef daxpy_ptr daxpy(CBlas cblas) noexcept nogil:
     return deref(cblas.ptr).daxpy
 
-cdef saxpy_ptr saxpy(CBlas cblas) nogil:
+cdef saxpy_ptr saxpy(CBlas cblas) noexcept nogil:
     return deref(cblas.ptr).saxpy
 
-cdef sgemm_ptr sgemm(CBlas cblas) nogil:
+cdef sgemm_ptr sgemm(CBlas cblas) noexcept nogil:
     return deref(cblas.ptr).sgemm
 
-cdef void set_daxpy(CBlas cblas, daxpy_ptr daxpy) nogil:
+cdef void set_daxpy(CBlas cblas, daxpy_ptr daxpy) noexcept nogil:
     deref(cblas.ptr).daxpy = daxpy
 
-cdef void set_saxpy(CBlas cblas, saxpy_ptr saxpy) nogil:
+cdef void set_saxpy(CBlas cblas, saxpy_ptr saxpy) noexcept nogil:
     deref(cblas.ptr).saxpy = saxpy
 
-cdef void set_sgemm(CBlas cblas, sgemm_ptr sgemm) nogil:
+cdef void set_sgemm(CBlas cblas, sgemm_ptr sgemm) noexcept nogil:
     deref(cblas.ptr).sgemm = sgemm

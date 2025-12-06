@@ -24,12 +24,7 @@ from typing import (
 
 import numpy
 from packaging.version import Version
-
-try:
-    from pydantic.v1 import ValidationError, create_model
-except ImportError:
-    from pydantic import ValidationError, create_model  # type: ignore
-
+from pydantic import ConfigDict, ValidationError, create_model
 from wasabi import table  # type: ignore
 
 from .compat import (
@@ -549,11 +544,6 @@ class DataValidationError(ValueError):
         ValueError.__init__(self, "\n\n" + "\n".join(result))
 
 
-class _ArgModelConfig:
-    extra = "forbid"
-    arbitrary_types_allowed = True
-
-
 def validate_fwd_input_output(
     name: str, func: Callable[[Any, Any, bool], Any], X: Any, Y: Any
 ) -> None:
@@ -568,28 +558,34 @@ def validate_fwd_input_output(
         bad_params = f"{len(params)} ({', '.join([p.name for p in params])})"
         err = f"Invalid forward function. Expected 3 arguments (model, X , is_train), got {bad_params}"
         raise DataValidationError(name, X, Y, [{"msg": err}])
-    annot_x = params[1].annotation
-    annot_y = sig.return_annotation
-    sig_args: Dict[str, Any] = {"__config__": _ArgModelConfig}
-    args = {}
-    if X is not None and annot_x != empty:
-        if isinstance(X, list) and len(X) > 5:
-            X = X[:5]
-        sig_args["X"] = (annot_x, ...)
-        args["X"] = X
-    if Y is not None and annot_y != empty:
-        if isinstance(Y, list) and len(Y) > 5:
-            Y = Y[:5]
-        sig_args["Y"] = (annot_y, ...)
-        args["Y"] = (Y, lambda x: x)
-    ArgModel = create_model("ArgModel", **sig_args)
-    # Make sure the forward refs are resolved and the types used by them are
-    # available in the correct scope. See #494 for details.
-    ArgModel.update_forward_refs(**types.__dict__)
-    try:
-        ArgModel.parse_obj(args)
-    except ValidationError as e:
-        raise DataValidationError(name, X, Y, e.errors()) from None
+    # Unfortunately I can't get this to work for Pydantic v2 yet. The Floats2d etc types fail to validate
+    # against their duck-types numpy.ndarray etc. For now disable this validation while I check with
+    # the pydantic folks how I should do this.
+    # TODO: Uncomment when working
+    # annot_x = params[1].annotation
+    # annot_y = sig.return_annotation
+    # sig_args: Dict[str, Any] = {"__config__": {"extra": "forbid", "arbitrary_types_allowed": True}}
+    # args = {}
+    # if X is not None and annot_x != empty:
+    #     if isinstance(X, list) and len(X) > 5:
+    #         X = X[:5]
+    #     sig_args["X"] = (annot_x, ...)
+    #     args["X"] = X
+    # if Y is not None and annot_y != empty:
+    #     if isinstance(Y, list) and len(Y) > 5:
+    #         Y = Y[:5]
+    #     sig_args["Y"] = (annot_y, ...)
+    #     args["Y"] = (Y, lambda x: x)
+
+    # ArgModel = create_model("ArgModel", X=sig_args["X"], Y=sig_args["Y"], __config__=ConfigDict(extra="forbid", arbitrary_types_allowed=True))
+    # # Make sure the forward refs are resolved and the types used by them are
+    # # available in the correct scope. See #494 for details.
+    # ArgModel.model_rebuild()
+    # try:
+    #     ArgModel.model_validate(args)
+    # except ValidationError as e:
+    #     raise DataValidationError(name, X, Y, e.errors()) from None
+    return None
 
 
 @contextlib.contextmanager

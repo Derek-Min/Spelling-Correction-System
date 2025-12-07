@@ -268,12 +268,11 @@ def highlight(text: str, errors: dict) -> str:
             else:
                 trail = ""
 
+            # Create popup for display only (no click functionality)
             popup_items = []
             for s in sugs:
                 repl = s + trail
-                # Use onclick with JavaScript to update URL and reload
-                onclick = f"event.preventDefault(); window.location.href = '?replace_idx={idx}&replace_word={quote(repl)}';"
-                popup_items.append(f"<a href='#' onclick=\"{onclick}\" class='poplink'>{repl}</a>")
+                popup_items.append(f"<span class='poplink'>{repl}</span>")
 
             popup_html = "<span class='popup'>" + "".join(popup_items) + "</span>"
             html_words.append(f"<span class='err {css}'>{w}{popup_html}</span>")
@@ -317,10 +316,46 @@ with left:
     errors = st.session_state.get("errors", {})
 
     # ---------------- Highlighted Text ----------------
+    # ---------------- Highlighted Text ----------------
     st.markdown("### Highlighted Text")
     if errors:
         html = highlight(text_input, errors)
         st.markdown(html, unsafe_allow_html=True)
+        
+        # Add quick-fix buttons below
+        st.markdown("**Quick fixes (click to replace):**")
+        words = text_input.split()
+        
+        # Create columns for all errors
+        error_indices = []
+        for idx, w in enumerate(words):
+            clean = re.sub(r"[^\w']+", "", w.lower())
+            if clean in errors:
+                error_indices.append(idx)
+        
+        if error_indices:
+            # Show up to 3 errors per row
+            for i in range(0, len(error_indices), 3):
+                batch = error_indices[i:i+3]
+                cols = st.columns(len(batch))
+                
+                for col_idx, word_idx in enumerate(batch):
+                    w = words[word_idx]
+                    clean = re.sub(r"[^\w']+", "", w.lower())
+                    info = errors[clean]
+                    sugs = info["sugs"]
+                    
+                    m = re.match(r"([A-Za-z']+)([^A-Za-z']*)$", w)
+                    trail = m.group(2) if m else ""
+                    
+                    with cols[col_idx]:
+                        st.write(f"**{w}** →")
+                        for s in sugs:
+                            repl = s + trail
+                            if st.button(repl, key=f"fix_{word_idx}_{s}", use_container_width=True):
+                                replace_word(word_idx, repl)
+                                st.session_state.should_recheck = True
+                                st.rerun()
     else:
         st.markdown("<div class='box'>No errors found.</div>", unsafe_allow_html=True)
 

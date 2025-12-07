@@ -1,7 +1,7 @@
 import re
 import streamlit as st
-from spellchecker import SpellChecker
 import spacy
+from collections import Counter
 
 # ----------------------------------------------------
 # Streamlit Page Config
@@ -9,7 +9,7 @@ import spacy
 st.set_page_config(page_title="Spelling Correction System", layout="wide")
 
 # ----------------------------------------------------
-# JetBrains-style Dark UI + Wavy Underlines
+# JetBrains-style Dark UI + Wavy Underlines (UNCHANGED)
 # ----------------------------------------------------
 st.markdown("""
 <style>
@@ -82,24 +82,29 @@ span.grammar {
 """, unsafe_allow_html=True)
 
 # ----------------------------------------------------
-# Load NLP + SpellChecker
+# Load NLP + BUSINESS CORPUS
 # ----------------------------------------------------
 @st.cache_resource
 def load_resources():
     nlp = spacy.load("en_core_web_sm")
-    spell = SpellChecker()
 
-    # Clean dictionary for optional sidebar (only alphabetic lowercase words)
-    dict_words = sorted(
-        w for w in spell.word_frequency.words()
-        if w.isalpha() and w.islower()
-    )
-    return nlp, spell, dict_words
+    # Load your business corpus
+    with open("clean_business_corpus.txt", "r", encoding="utf8") as f:
+        corpus = f.read()
 
-nlp, spell, dictionary_words = load_resources()
+    # Extract words + build word frequency dictionary
+    words = re.findall(r"[a-z]+", corpus.lower())
+    word_freq = Counter(words)
+
+    # Sorted dictionary for sidebar
+    dict_words = sorted(word_freq.keys())
+
+    return nlp, word_freq, dict_words
+
+nlp, word_freq, dictionary_words = load_resources()
 
 # ----------------------------------------------------
-# Small Confusion Sets (Real-word spelling)
+# Real-word confusion sets
 # ----------------------------------------------------
 CONFUSION_SETS = {
     "sea": ["see"],
@@ -115,7 +120,7 @@ CONFUSION_SETS = {
 }
 
 # ----------------------------------------------------
-# Simple Semantic Rules (light verb–object check)
+# Semantic Rules
 # ----------------------------------------------------
 VALID_OBJECTS = {
     "eat": {"food", "meal", "rice", "burger", "apple", "bread"},
@@ -126,27 +131,14 @@ VALID_OBJECTS = {
 }
 
 SEMANTIC_MAP = {
-    "book": "book",
-    "novel": "book",
-
-    "rice": "rice",
-    "nasi": "rice",
-    "goreng": "rice",
-
-    "water": "water",
-    "tea": "water",
-    "coffee": "water",
-    "juice": "water",
-    "milk": "water",
-
-    "medicine": "medicine",
-    "tablet": "medicine",
-    "pill": "medicine",
-    "drug": "medicine",
+    "book": "book", "novel": "book",
+    "rice": "rice", "nasi": "rice", "goreng": "rice",
+    "water": "water", "tea": "water", "coffee": "water", "juice": "water", "milk": "water",
+    "medicine": "medicine", "tablet": "medicine", "pill": "medicine", "drug": "medicine",
 }
 
 # ----------------------------------------------------
-# Levenshtein Edit Distance
+# EDIT DISTANCE
 # ----------------------------------------------------
 def edit_distance(a: str, b: str) -> int:
     n, m = len(a), len(b)
@@ -161,49 +153,51 @@ def edit_distance(a: str, b: str) -> int:
             dp[i][j] = min(
                 dp[i - 1][j] + 1,
                 dp[i][j - 1] + 1,
-                dp[i - 1][j - 1] + cost
+                dp[i - 1][j - 1] + cost,
             )
     return dp[n][m]
 
+# ----------------------------------------------------
+# Ranked Suggestions (using your corpus)
+# ----------------------------------------------------
 def ranked_suggestions(word: str, max_suggestions: int = 3):
-    candidates = spell.candidates(word)
-    candidates = {c for c in candidates if c.lower() != word.lower()}
+    candidates = []
+
+    for w in word_freq.keys():
+        if abs(len(w) - len(word)) <= 2:
+            dist = edit_distance(word, w)
+            if dist <= 2:
+                candidates.append((w, dist, -word_freq[w]))
+
     if not candidates:
         return []
-    return sorted(candidates, key=lambda c: (edit_distance(word, c), c))[:max_suggestions]
+
+    candidates.sort(key=lambda x: (x[1], x[2]))
+    return [c[0] for c in candidates[:max_suggestions]]
 
 # ----------------------------------------------------
-# Core Detection Logic
+# SPELLING + GRAMMAR DETECTION
 # ----------------------------------------------------
 def check_text(text: str):
     doc = nlp(text)
     tokens = [t for t in doc if t.is_alpha]
-    lower_tokens = [t.text.lower() for t in tokens]
 
-    errors = {}  # word(lower) -> {"kind": ..., "sugs": [...]}
+    errors = {}
 
-    # 1) Non-word spelling errors (SpellChecker)
-    unknown = spell.unknown(lower_tokens)
+    # 1) Non-word errors
     for tok in tokens:
         lw = tok.text.lower()
-        if lw in unknown:
+        if lw not in word_freq:
             sugs = ranked_suggestions(lw)
-            if not sugs:
-                sugs = ["(no suggestion)"]
-            errors[lw] = {"kind": "non-word", "sugs": sugs}
+            errors[lw] = {"kind": "non-word", "sugs": sugs or ["(no suggestion)"]}
 
-    # 2) Real-word confusion set errors (sea/see, there/their...)
+    # 2) Real-word confusion sets
     for tok in tokens:
         lw = tok.text.lower()
-        if lw in errors:
-            continue
-        if lw in CONFUSION_SETS:
-            # Very simple: show alternative forms
-            sugs = CONFUSION_SETS[lw]
-            errors[lw] = {"kind": "real-word", "sugs": sugs}
+        if lw not in errors and lw in CONFUSION_SETS:
+            errors[lw] = {"kind": "real-word", "sugs": CONFUSION_SETS[lw]}
 
-    # 3) Improved Semantic Checking (verb-object meaning)
-
+    # 3) Semantic errors
     SEMANTIC_REPLACEMENTS = {
         "eat": ["read", "take", "consume"],
         "drink": ["eat", "taste"],
@@ -213,17 +207,15 @@ def check_text(text: str):
     }
 
     for tok in doc:
-
         if tok.pos_ != "VERB":
             continue
 
         verb_lemma = tok.lemma_.lower()
-        verb_form = tok.text.lower()   # << ACTUAL SURFACE WORD (e.g., eating)
+        verb_form = tok.text.lower()
 
         if verb_lemma not in VALID_OBJECTS:
             continue
 
-        # find object
         obj_token = None
         for child in tok.children:
             if child.dep_ in ("dobj", "obj") and child.is_alpha:
@@ -234,51 +226,39 @@ def check_text(text: str):
             continue
 
         obj_lemma = obj_token.lemma_.lower()
-        obj_form = obj_token.text.lower()  # << ACTUAL SURFACE WORD (e.g., book)
+        obj_form = obj_token.text.lower()
 
         obj_cat = SEMANTIC_MAP.get(obj_lemma, obj_lemma)
 
         if obj_cat not in VALID_OBJECTS[verb_lemma]:
-
-            # get appropriate replacement verbs
-            suggestions = SEMANTIC_REPLACEMENTS.get(verb_lemma, ["Check meaning"])
-
-            # highlight BOTH actual words, not lemma
             for w in (verb_form, obj_form):
                 if w not in errors:
-                    errors[w] = {
-                        "kind": "real-word",
-                        "sugs": suggestions
-                    }
+                    errors[w] = {"kind": "real-word", "sugs": SEMANTIC_REPLACEMENTS.get(verb_lemma, ["Check meaning"])}
 
-
-
-    # 4) Basic grammar: subject–verb agreement
+    # 4) Basic grammar check
     singular = {"he", "she", "it", "this", "that"}
     plural = {"they", "we", "i", "you", "these", "those"}
 
     for tok in doc:
         if tok.tag_ in ("VBP", "VBZ") and tok.dep_ == "ROOT":
             for child in tok.children:
-                if child.dep_ == "nsubj" and child.is_alpha:
+                if child.dep_ == "nsubj":
                     subj = child.text.lower()
                     lw = tok.text.lower()
-                    if lw in errors:
-                        continue
-                    if subj in singular and tok.tag_ == "VBP":
-                        errors[lw] = {"kind": "grammar", "sugs": [tok.lemma_ + "s"]}
-                    elif subj in plural and tok.tag_ == "VBZ":
-                        errors[lw] = {"kind": "grammar", "sugs": [tok.lemma_]}
+                    if lw not in errors:
+                        if subj in singular and tok.tag_ == "VBP":
+                            errors[lw] = {"kind": "grammar", "sugs": [tok.lemma_ + "s"]}
+                        elif subj in plural and tok.tag_ == "VBZ":
+                            errors[lw] = {"kind": "grammar", "sugs": [tok.lemma_]}
 
     return errors
 
 # ----------------------------------------------------
-# Highlight text based on errors
+# HIGHLIGHT OUTPUT
 # ----------------------------------------------------
 def highlight(text, errors):
     words = text.split()
     out = []
-
     for w in words:
         lw = re.sub(r"\W+", "", w.lower())
         if lw in errors:
@@ -287,12 +267,10 @@ def highlight(text, errors):
             out.append(f"<span class='{css}'>{w}</span>")
         else:
             out.append(w)
-
     return " ".join(out)
 
-
 # ----------------------------------------------------
-# Apply chosen corrections (for preview/final output)
+# APPLY CORRECTIONS
 # ----------------------------------------------------
 def apply_corrections(original_text: str, corrections: dict):
     parts = re.findall(r"\w+|\W+", original_text)
@@ -306,7 +284,7 @@ def apply_corrections(original_text: str, corrections: dict):
     return "".join(out)
 
 # ----------------------------------------------------
-# UI LAYOUT (Dropdown + Preview + Final Output)
+# UI LAYOUT (UNCHANGED)
 # ----------------------------------------------------
 left, right = st.columns([2.5, 1])
 
@@ -320,10 +298,10 @@ with left:
     if "corrections" not in st.session_state:
         st.session_state.corrections = {}
 
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
+    col1, col2 = st.columns(2)
+    with col1:
         check_btn = st.button("Check Text")
-    with col_btn2:
+    with col2:
         clear_btn = st.button("Clear")
 
     if clear_btn:
@@ -331,39 +309,30 @@ with left:
         st.session_state.errors = {}
         st.session_state.corrections = {}
 
-    text = st.text_area(
-        "Main Text",
-        st.session_state.text,
-        height=220
-    )
+    text = st.text_area("Main Text", st.session_state.text, height=220)
     st.session_state.text = text
 
-    # Run checker when button pressed
     if check_btn:
         errs = check_text(text)
         st.session_state.errors = errs
-        st.session_state.corrections = {w: "(no change)" for w in errs.keys()}
+        st.session_state.corrections = {w: "(no change)" for w in errs}
 
     errors = st.session_state.errors
     corrections = st.session_state.corrections
 
-    # Suggestions with dropdowns
     st.markdown("### Suggestions (Dropdown per Error)")
     if not errors:
         st.markdown("<div class='box'>No errors found.</div>", unsafe_allow_html=True)
     else:
-        with st.container():
-            for w, info in errors.items():
-                sugs = info["sugs"]
-                kind = info["kind"]
-                label = f"Choose replacement for '{w}' ({kind})"
-                options = ["(no change)"] + sugs
-                # key per word
-                selected = st.selectbox(label, options, key=f"sel_{w}")
-                corrections[w] = selected
-            st.session_state.corrections = corrections
+        for w, info in errors.items():
+            sugs = info["sugs"]
+            kind = info["kind"]
+            label = f"Choose replacement for '{w}' ({kind})"
+            options = ["(no change)"] + sugs
+            selected = st.selectbox(label, options, key=f"sel_{w}")
+            corrections[w] = selected
+        st.session_state.corrections = corrections
 
-    # Preview sentence
     st.markdown("### Sentence Preview")
     if errors:
         preview = apply_corrections(text, corrections)
@@ -371,16 +340,14 @@ with left:
     else:
         st.markdown("<div class='box'>Nothing to preview.</div>", unsafe_allow_html=True)
 
-    # Final corrected output
     st.markdown("### Final Corrected Output")
     if st.button("Generate Final Output"):
         final_output = apply_corrections(text, corrections)
         st.markdown(
             f"<div class='box' style='background:#d4f8d4; color:black;'>{final_output}</div>",
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
 
-    # Highlight panel
     st.markdown("### Highlighted Text")
     if errors:
         highlighted = highlight(text, errors)
@@ -389,10 +356,14 @@ with left:
         st.markdown("<div class='box'>No highlights.</div>", unsafe_allow_html=True)
 
 with right:
-    st.markdown("### Dictionary (from SpellChecker)")
+    st.markdown("### Dictionary (Business Corpus)")
     search = st.text_input("Search dictionary:", "")
     if search:
         filtered = [w for w in dictionary_words if search.lower() in w]
     else:
         filtered = dictionary_words[:4000]
-    st.markdown(f"<div class='box' style='height:480px; overflow-y:auto;'>{'<br>'.join(filtered)}</div>", unsafe_allow_html=True)
+
+    st.markdown(
+        f"<div class='box' style='height:480px; overflow-y:auto;'>{'<br>'.join(filtered)}</div>",
+        unsafe_allow_html=True,
+    )

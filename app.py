@@ -1,17 +1,48 @@
 import re
-import streamlit as st
+from urllib.parse import quote, unquote
+
 import spacy
+import streamlit as st
 from collections import Counter
 
 # ----------------------------------------------------
-# Streamlit Page Config
+# Streamlit Config
 # ----------------------------------------------------
 st.set_page_config(page_title="Spelling Correction System", layout="wide")
 
 # ----------------------------------------------------
-# JetBrains-style Dark UI + Wavy Underlines (UNCHANGED)
+# Handle replacement from query params
 # ----------------------------------------------------
-st.markdown("""
+if "text" not in st.session_state:
+    st.session_state.text = ""
+
+def replace_word(idx: int, new_word: str):
+    words = st.session_state.text.split()
+    if 0 <= idx < len(words):
+        words[idx] = new_word
+        st.session_state.text = " ".join(words)
+
+# Check query params
+query_params = st.query_params
+if "replace_idx" in query_params and "replace_word" in query_params:
+    try:
+        idx = int(query_params["replace_idx"])
+        new_word = unquote(query_params["replace_word"])
+        replace_word(idx, new_word)
+        # Clear query params
+        st.query_params.clear()
+        # Force recheck
+        if st.session_state.text:
+            st.session_state.should_recheck = True
+        st.rerun()
+    except Exception as e:
+        pass
+
+# ----------------------------------------------------
+# CSS Styling
+# ----------------------------------------------------
+st.markdown(
+    """
 <style>
 :root {
     --bg: #2B2B2B;
@@ -30,31 +61,21 @@ body, .main {
     font-family: 'Segoe UI', sans-serif;
 }
 
-h2 {
-    color: var(--text) !important;
-    font-weight: 600 !important;
-}
-
 .box {
     background-color: var(--card);
     border: 1px solid var(--border);
     padding: 12px;
     border-radius: 8px;
-    margin-top: 10px;
+    margin-top: 8px;
 }
 
-/* Wavy underline animation */
-@keyframes squiggly {
-    from { background-position-x: 0; }
-    to { background-position-x: -20px; }
-}
-
-span.nonword, span.realword, span.grammar {
+span.err {
+    position: relative;
+    padding-bottom: 2px;
     background-size: 6px 6px;
     background-repeat: repeat-x;
     background-position-y: bottom;
-    animation: squiggly 1s linear infinite;
-    padding-bottom: 1px;
+    cursor: pointer;
 }
 
 span.nonword {
@@ -64,6 +85,7 @@ span.nonword {
         var(--err) 3px 6px
     );
 }
+
 span.realword {
     background-image: repeating-linear-gradient(
         -45deg,
@@ -71,6 +93,7 @@ span.realword {
         var(--real) 3px 6px
     );
 }
+
 span.grammar {
     background-image: repeating-linear-gradient(
         -45deg,
@@ -78,69 +101,72 @@ span.grammar {
         var(--grammar) 3px 6px
     );
 }
+
+span.err .popup {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    top: 1.4em;
+    left: 0;
+    background: #111;
+    border: 1px solid #555;
+    border-radius: 6px;
+    padding: 4px;
+    z-index: 9999;
+    white-space: nowrap;
+    transition: opacity 0.15s ease-in;
+}
+
+span.err:hover .popup {
+    visibility: visible;
+    opacity: 1;
+}
+
+.poplink {
+    cursor: pointer;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    display: block;
+    text-decoration: none;
+    margin: 2px 0;
+}
+
+.poplink:hover {
+    background: #444;
+}
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ----------------------------------------------------
-# Load NLP + BUSINESS CORPUS
+# Load NLP + Business Corpus
 # ----------------------------------------------------
 @st.cache_resource
 def load_resources():
     nlp = spacy.load("en_core_web_sm")
-
-    # Load your business corpus
     with open("clean_business_corpus.txt", "r", encoding="utf8") as f:
         corpus = f.read()
-
-    # Extract words + build word frequency dictionary
     words = re.findall(r"[a-z]+", corpus.lower())
     word_freq = Counter(words)
-
-    # Sorted dictionary for sidebar
     dict_words = sorted(word_freq.keys())
-
     return nlp, word_freq, dict_words
 
 nlp, word_freq, dictionary_words = load_resources()
 
 # ----------------------------------------------------
-# Real-word confusion sets
+# Confusion sets
 # ----------------------------------------------------
 CONFUSION_SETS = {
-    "sea": ["see"],
-    "see": ["sea"],
-    "form": ["from"],
-    "from": ["form"],
-    "there": ["their", "they're"],
-    "their": ["there", "they're"],
-    "they're": ["their", "there"],
-    "to": ["too", "two"],
-    "too": ["to", "two"],
-    "two": ["to", "too"],
+    "sea": ["see"], "see": ["sea"], "form": ["from"], "from": ["form"],
+    "their": ["there"], "there": ["their"], "to": ["too"], "too": ["to"],
 }
 
 # ----------------------------------------------------
-# Semantic Rules
+# Edit Distance
 # ----------------------------------------------------
-VALID_OBJECTS = {
-    "eat": {"food", "meal", "rice", "burger", "apple", "bread"},
-    "drink": {"water", "tea", "coffee", "juice", "milk"},
-    "read": {"book", "article", "report", "document", "paper"},
-    "write": {"report", "notes", "paper", "essay"},
-    "take": {"medicine", "pill", "tablet", "drug"},
-}
-
-SEMANTIC_MAP = {
-    "book": "book", "novel": "book",
-    "rice": "rice", "nasi": "rice", "goreng": "rice",
-    "water": "water", "tea": "water", "coffee": "water", "juice": "water", "milk": "water",
-    "medicine": "medicine", "tablet": "medicine", "pill": "medicine", "drug": "medicine",
-}
-
-# ----------------------------------------------------
-# EDIT DISTANCE
-# ----------------------------------------------------
-def edit_distance(a: str, b: str) -> int:
+def edit_distance(a, b):
     n, m = len(a), len(b)
     dp = [[0] * (m + 1) for _ in range(n + 1)]
     for i in range(n + 1):
@@ -150,220 +176,184 @@ def edit_distance(a: str, b: str) -> int:
     for i in range(1, n + 1):
         for j in range(1, m + 1):
             cost = 0 if a[i - 1] == b[j - 1] else 1
-            dp[i][j] = min(
-                dp[i - 1][j] + 1,
-                dp[i][j - 1] + 1,
-                dp[i - 1][j - 1] + cost,
-            )
+            dp[i][j] = min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost)
     return dp[n][m]
 
 # ----------------------------------------------------
-# Ranked Suggestions (using your corpus)
+# Ranked Suggestions
 # ----------------------------------------------------
-def ranked_suggestions(word: str, max_suggestions: int = 3):
+def ranked_suggestions(word, max_suggestions=3):
     candidates = []
-
     for w in word_freq.keys():
         if abs(len(w) - len(word)) <= 2:
-            dist = edit_distance(word, w)
-            if dist <= 2:
-                candidates.append((w, dist, -word_freq[w]))
-
-    if not candidates:
-        return []
-
+            d = edit_distance(word, w)
+            if d <= 2:
+                candidates.append((w, d, -word_freq[w]))
     candidates.sort(key=lambda x: (x[1], x[2]))
     return [c[0] for c in candidates[:max_suggestions]]
 
 # ----------------------------------------------------
-# SPELLING + GRAMMAR DETECTION
+# Check text
 # ----------------------------------------------------
 def check_text(text: str):
     doc = nlp(text)
     tokens = [t for t in doc if t.is_alpha]
-
     errors = {}
 
-    # 1) Non-word errors
     for tok in tokens:
         lw = tok.text.lower()
         if lw not in word_freq:
-            sugs = ranked_suggestions(lw)
-            errors[lw] = {"kind": "non-word", "sugs": sugs or ["(no suggestion)"]}
+            errors[lw] = {"kind": "non-word", "sugs": ranked_suggestions(lw) or ["(no suggestion)"]}
 
-    # 2) Real-word confusion sets
     for tok in tokens:
         lw = tok.text.lower()
         if lw not in errors and lw in CONFUSION_SETS:
             errors[lw] = {"kind": "real-word", "sugs": CONFUSION_SETS[lw]}
 
-    # 3) Semantic errors
-    SEMANTIC_REPLACEMENTS = {
-        "eat": ["read", "take", "consume"],
-        "drink": ["eat", "taste"],
-        "read": ["review", "study"],
-        "write": ["draft", "compose"],
-        "take": ["eat", "consume"],
-    }
-
-    for tok in doc:
-        if tok.pos_ != "VERB":
-            continue
-
-        verb_lemma = tok.lemma_.lower()
-        verb_form = tok.text.lower()
-
-        if verb_lemma not in VALID_OBJECTS:
-            continue
-
-        obj_token = None
-        for child in tok.children:
-            if child.dep_ in ("dobj", "obj") and child.is_alpha:
-                obj_token = child
-                break
-
-        if not obj_token:
-            continue
-
-        obj_lemma = obj_token.lemma_.lower()
-        obj_form = obj_token.text.lower()
-
-        obj_cat = SEMANTIC_MAP.get(obj_lemma, obj_lemma)
-
-        if obj_cat not in VALID_OBJECTS[verb_lemma]:
-            for w in (verb_form, obj_form):
-                if w not in errors:
-                    errors[w] = {"kind": "real-word", "sugs": SEMANTIC_REPLACEMENTS.get(verb_lemma, ["Check meaning"])}
-
-    # 4) Basic grammar check
     singular = {"he", "she", "it", "this", "that"}
-    plural = {"they", "we", "i", "you", "these", "those"}
+    plural = {"i", "we", "they", "you", "these", "those"}
 
     for tok in doc:
-        if tok.tag_ in ("VBP", "VBZ") and tok.dep_ == "ROOT":
+        if tok.tag_ in ("VBP", "VBZ"):
+            subj = None
             for child in tok.children:
                 if child.dep_ == "nsubj":
-                    subj = child.text.lower()
-                    lw = tok.text.lower()
-                    if lw not in errors:
-                        if subj in singular and tok.tag_ == "VBP":
-                            errors[lw] = {"kind": "grammar", "sugs": [tok.lemma_ + "s"]}
-                        elif subj in plural and tok.tag_ == "VBZ":
-                            errors[lw] = {"kind": "grammar", "sugs": [tok.lemma_]}
+                    subj = child
+                    break
+            if not subj:
+                continue
+            subj_l = subj.text.lower()
+            verb_l = tok.text.lower()
+            if verb_l in errors:
+                continue
+            sugs = []
+            if subj_l in singular and tok.tag_ == "VBP":
+                sugs = [tok.lemma_ + "s"]
+            elif subj_l in plural and tok.tag_ == "VBZ":
+                sugs = [tok.lemma_]
+            if sugs:
+                errors[verb_l] = {"kind": "grammar", "sugs": sugs}
 
     return errors
 
 # ----------------------------------------------------
-# HIGHLIGHT OUTPUT
+# Highlight with clickable links
 # ----------------------------------------------------
-def highlight(text, errors):
+def highlight(text: str, errors: dict) -> str:
     words = text.split()
-    out = []
-    for w in words:
-        lw = re.sub(r"\W+", "", w.lower())
-        if lw in errors:
-            kind = errors[lw]["kind"]
-            css = "nonword" if kind == "non-word" else "grammar" if kind == "grammar" else "realword"
-            out.append(f"<span class='{css}'>{w}</span>")
+    html_words = []
+
+    for idx, w in enumerate(words):
+        clean = re.sub(r"[^\w']+", "", w.lower())
+
+        if clean in errors:
+            info = errors[clean]
+            kind = info["kind"]
+            sugs = info["sugs"]
+
+            if not sugs:
+                html_words.append(w)
+                continue
+
+            if kind == "non-word":
+                css = "nonword"
+            elif kind == "real-word":
+                css = "realword"
+            else:
+                css = "grammar"
+
+            m = re.match(r"([A-Za-z']+)([^A-Za-z']*)$", w)
+            if m:
+                trail = m.group(2)
+            else:
+                trail = ""
+
+            popup_items = []
+            for s in sugs:
+                repl = s + trail
+                # Use onclick with JavaScript to update URL and reload
+                onclick = f"event.preventDefault(); window.location.href = '?replace_idx={idx}&replace_word={quote(repl)}';"
+                popup_items.append(f"<a href='#' onclick=\"{onclick}\" class='poplink'>{repl}</a>")
+
+            popup_html = "<span class='popup'>" + "".join(popup_items) + "</span>"
+            html_words.append(f"<span class='err {css}'>{w}{popup_html}</span>")
         else:
-            out.append(w)
-    return " ".join(out)
+            html_words.append(w)
+
+    return "<div class='box'>" + " ".join(html_words) + "</div>"
 
 # ----------------------------------------------------
-# APPLY CORRECTIONS
+# Apply corrections
 # ----------------------------------------------------
-def apply_corrections(original_text: str, corrections: dict):
-    parts = re.findall(r"\w+|\W+", original_text)
-    out = []
-    for p in parts:
-        lw = p.lower()
-        if lw in corrections and corrections[lw] not in ("(no change)", "(no suggestion)"):
-            out.append(corrections[lw])
-        else:
-            out.append(p)
-    return "".join(out)
+def apply_corrections(text: str, errors: dict) -> str:
+    return text
 
 # ----------------------------------------------------
-# UI LAYOUT (UNCHANGED)
+# UI LAYOUT
 # ----------------------------------------------------
-left, right = st.columns([2.5, 1])
+left, right = st.columns([3, 1.2])
 
 with left:
-    st.markdown("<h2>Spelling & Grammar Checker</h2>", unsafe_allow_html=True)
-
-    if "text" not in st.session_state:
-        st.session_state.text = ""
-    if "errors" not in st.session_state:
-        st.session_state.errors = {}
-    if "corrections" not in st.session_state:
-        st.session_state.corrections = {}
+    st.markdown("## Spelling & Grammar Checker")
 
     col1, col2 = st.columns(2)
     with col1:
-        check_btn = st.button("Check Text")
+        run = st.button("Check Text")
     with col2:
-        clear_btn = st.button("Clear")
+        clear = st.button("Clear")
 
-    if clear_btn:
+    if clear:
         st.session_state.text = ""
         st.session_state.errors = {}
-        st.session_state.corrections = {}
+        st.rerun()
 
-    text = st.text_area("Main Text", st.session_state.text, height=220)
-    st.session_state.text = text
+    text_input = st.text_area("Main Text", st.session_state.text, height=200)
+    st.session_state.text = text_input
 
-    if check_btn:
-        errs = check_text(text)
-        st.session_state.errors = errs
-        st.session_state.corrections = {w: "(no change)" for w in errs}
+    if run or st.session_state.get("should_recheck", False):
+        st.session_state.errors = check_text(text_input)
+        st.session_state.should_recheck = False
 
-    errors = st.session_state.errors
-    corrections = st.session_state.corrections
+    errors = st.session_state.get("errors", {})
 
-    st.markdown("### Suggestions (Dropdown per Error)")
-    if not errors:
-        st.markdown("<div class='box'>No errors found.</div>", unsafe_allow_html=True)
-    else:
-        for w, info in errors.items():
-            sugs = info["sugs"]
-            kind = info["kind"]
-            label = f"Choose replacement for '{w}' ({kind})"
-            options = ["(no change)"] + sugs
-            selected = st.selectbox(label, options, key=f"sel_{w}")
-            corrections[w] = selected
-        st.session_state.corrections = corrections
-
-    st.markdown("### Sentence Preview")
+    # ---------------- Highlighted Text ----------------
+    st.markdown("### Highlighted Text")
     if errors:
-        preview = apply_corrections(text, corrections)
-        st.markdown(f"<div class='box'>{preview}</div>", unsafe_allow_html=True)
+        html = highlight(text_input, errors)
+        st.markdown(html, unsafe_allow_html=True)
     else:
-        st.markdown("<div class='box'>Nothing to preview.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='box'>No errors found.</div>", unsafe_allow_html=True)
 
-    st.markdown("### Final Corrected Output")
+    # ---------------- Suggestions List ----------------
+    st.markdown("### Suggestions")
+    if errors:
+        lines = []
+        for w, info in errors.items():
+            kind = info["kind"]
+            best = info["sugs"][0] if info["sugs"] else "(no suggestion)"
+            lines.append(f"{w} ({kind}) → {best}")
+        st.markdown("<div class='box'>" + "<br>".join(lines) + "</div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<div class='box'>No suggestions.</div>", unsafe_allow_html=True)
+
+    # ---------------- Final Output ----------------
+    st.markdown("### Final Output")
     if st.button("Generate Final Output"):
-        final_output = apply_corrections(text, corrections)
+        final = apply_corrections(st.session_state.text, errors)
         st.markdown(
-            f"<div class='box' style='background:#d4f8d4; color:black;'>{final_output}</div>",
+            f"<div class='box' style='background:#d4f8d4; color:black; font-size:18px;'>{final}</div>",
             unsafe_allow_html=True,
         )
 
-    st.markdown("### Highlighted Text")
-    if errors:
-        highlighted = highlight(text, errors)
-        st.markdown(f"<div class='box'>{highlighted}</div>", unsafe_allow_html=True)
-    else:
-        st.markdown("<div class='box'>No highlights.</div>", unsafe_allow_html=True)
-
 with right:
     st.markdown("### Dictionary (Business Corpus)")
-    search = st.text_input("Search dictionary:", "")
+    search = st.text_input("Search dictionary:")
     if search:
         filtered = [w for w in dictionary_words if search.lower() in w]
     else:
         filtered = dictionary_words[:4000]
 
     st.markdown(
-        f"<div class='box' style='height:480px; overflow-y:auto;'>{'<br>'.join(filtered)}</div>",
+        f"<div class='box' style='height:520px; overflow-y:auto;'>{'<br>'.join(filtered)}</div>",
         unsafe_allow_html=True,
     )

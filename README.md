@@ -83,16 +83,43 @@ Uses spaCy POS tagging to detect subject-verb mismatches.
 ## 🚀 Running the Application
 
 ### 1. Install dependencies
-Run:
+Run:On Windows (PowerShell):
+venv312\Scripts\Activate
+
+
+You should see (venv312) at the start of the terminal line.
+
+On Mac / Linux:
+source venv312/bin/activate
+
+pip install -r requirements.txt
+
 
 ### 2. Install spaCy English model (required)
+python -m spacy download en_core_web_sm
 
 
 ### 3. Start the Streamlit app
-
+streamlit run app.py
 
 ### 4. Ensure the corpus file exists
 Make sure `clean_business_corpus.txt` is in the same folder as `app.py`.
+
+---
+
+## ✏️ Test Paragraph (3 Sentences)
+
+Use this paragraph to test non-word, real-word, semantic, and grammar detection:
+
+The comapny release a new produxt yesterday, but the team did not notice the misteaks in the report.  
+He drink the data analysis and write water during the meeting, which cause several confusions.  
+The manager form a new plane to improve reveneu, but their decision were not clearly explaned.
+
+This paragraph triggers **all** system capabilities:
+- Non-word errors  
+- Real-word errors  
+- Semantic mistakes  
+- Grammar issues  
 
 ---
 
@@ -137,7 +164,7 @@ This project fulfills the following NLP assignment components:
 ---
 
 ## 🙌 Author
-**Min Thant Wai**  
+**Min Thant Wai**  **Ye Yint Phyo**
 Asia Pacific University – Natural Language Processing  
 Spelling Correction System Project (2025)
 

@@ -41,9 +41,9 @@ if "replace_idx" in query_params and "replace_word" in query_params:
 # ----------------------------------------------------
 # CSS Styling
 # ----------------------------------------------------
-st.markdown(
-    """
+st.markdown("""
 <style>
+
 :root {
     --bg: #2B2B2B;
     --panel: #313335;
@@ -55,12 +55,13 @@ st.markdown(
     --grammar: #4EC9B0;
 }
 
+/* Background */
 body, .main {
     background-color: var(--bg) !important;
     color: var(--text) !important;
-    font-family: 'Segoe UI', sans-serif;
 }
 
+/* Card container */
 .box {
     background-color: var(--card);
     border: 1px solid var(--border);
@@ -69,39 +70,20 @@ body, .main {
     margin-top: 8px;
 }
 
+/* Highlight underline */
 span.err {
     position: relative;
     padding-bottom: 2px;
+    cursor: pointer;
     background-size: 6px 6px;
     background-repeat: repeat-x;
     background-position-y: bottom;
-    cursor: pointer;
 }
+span.nonword  { background-image: repeating-linear-gradient(-45deg, transparent 0 3px, var(--err) 3px 6px); }
+span.realword { background-image: repeating-linear-gradient(-45deg, transparent 0 3px, var(--real) 3px 6px); }
+span.grammar  { background-image: repeating-linear-gradient(-45deg, transparent 0 3px, var(--grammar) 3px 6px); }
 
-span.nonword {
-    background-image: repeating-linear-gradient(
-        -45deg,
-        transparent 0 3px,
-        var(--err) 3px 6px
-    );
-}
-
-span.realword {
-    background-image: repeating-linear-gradient(
-        -45deg,
-        transparent 0 3px,
-        var(--real) 3px 6px
-    );
-}
-
-span.grammar {
-    background-image: repeating-linear-gradient(
-        -45deg,
-        transparent 0 3px,
-        var(--grammar) 3px 6px
-    );
-}
-
+/* Hover popup suggestions */
 span.err .popup {
     visibility: hidden;
     opacity: 0;
@@ -110,13 +92,12 @@ span.err .popup {
     left: 0;
     background: #111;
     border: 1px solid #555;
-    border-radius: 6px;
     padding: 4px;
-    z-index: 9999;
+    border-radius: 6px;
     white-space: nowrap;
-    transition: opacity 0.15s ease-in;
+    transition: opacity 0.2s ease-in-out;
+    z-index: 9999;
 }
-
 span.err:hover .popup {
     visibility: visible;
     opacity: 1;
@@ -126,19 +107,80 @@ span.err:hover .popup {
     cursor: pointer;
     color: white;
     padding: 4px 8px;
+    font-size: 11px;
     border-radius: 4px;
     display: block;
-    text-decoration: none;
-    margin: 2px 0;
+}
+.poplink:hover { background: #444; }
+
+/* -----------------------------------------------
+   FIX — COMPACT QUICK FIX SECTION
+------------------------------------------------ */
+/* Remove extra spacing between columns */
+div[data-testid="column"] {
+    padding: 0 8px !important;
 }
 
-.poplink:hover {
-    background: #444;
+/* Make buttons smaller and more compact */
+div[data-testid="column"] button[kind="secondary"] {
+    width: 100% !important;
+    padding: 3px 8px !important;
+    font-size: 11px !important;
+    min-height: 26px !important;
+    margin: 2px 0 !important;
+    border-radius: 4px !important;
+    background-color: #3C3F41 !important;
+    color: #A9B7C6 !important;
+    border: 1px solid #4B4B4B !important;
 }
+
+div[data-testid="column"] button[kind="secondary"]:hover {
+    background-color: #4B4B4B !important;
+    border-color: #666 !important;
+}
+
+/* Compact the element containers */
+div[data-testid="column"] .element-container {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* Make the text before buttons smaller */
+div[data-testid="column"] .stMarkdown {
+    margin: 4px 0 2px 0 !important;
+    font-size: 12px !important;
+}
+
+/* -----------------------------------------------
+   MAIN ACTION BUTTONS — MAKE WHITE
+------------------------------------------------ */
+.stButton > button {
+    background-color: white !important;
+    color: black !important;
+    padding: 10px 22px !important;
+    border-radius: 6px !important;
+    font-weight: 600 !important;
+    border: 2px solid #ccc !important;
+}
+.stButton > button:hover {
+    background-color: #e6e6e6 !important;
+}
+
+/* -----------------------------------------------
+   MAKE "Generate Final Output" BIGGER
+------------------------------------------------ */
+button[data-testid="generate-output-btn"] {
+    padding: 18px 32px !important;
+    font-size: 18px !important;
+    font-weight: 700 !important;
+    border-radius: 8px !important;
+}
+
 </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
+
+
+
 
 # ----------------------------------------------------
 # Load NLP + Business Corpus
@@ -316,7 +358,6 @@ with left:
     errors = st.session_state.get("errors", {})
 
     # ---------------- Highlighted Text ----------------
-    # ---------------- Highlighted Text ----------------
     st.markdown("### Highlighted Text")
     if errors:
         html = highlight(text_input, errors)
@@ -373,10 +414,10 @@ with left:
 
     # ---------------- Final Output ----------------
     st.markdown("### Final Output")
-    if st.button("Generate Final Output"):
+    if st.button("Generate Final Output", key="generate-final-output"):
         final = apply_corrections(st.session_state.text, errors)
         st.markdown(
-            f"<div class='box' style='background:#d4f8d4; color:black; font-size:18px;'>{final}</div>",
+            f"<div class='box' style='background:#d4f8d4; color:white; font-size:18px;'>{final}</div>",
             unsafe_allow_html=True,
         )
 
